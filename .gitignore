@@ -1,0 +1,31 @@
+# Data files
+dataset/
+*.tsv
+
+# Artifacts and caches
+artifacts/
+output/
+*.pkl
+*.npy
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# OS
+.DS_Store
+.Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Submission zip
+*.zip
