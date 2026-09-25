@@ -171,9 +171,7 @@ def predict_country(country, s1_country_df, s23_country_df, model, feature_names
         res_addr = sparse_cosine_topk(q_addr, models['s23_addr_mat'], top_k=top_k_per_channel, batch_size=5000, min_score=0.10)
         
         # Fuse candidates for batch
-        batch_pairs = []
-        pair_meta = []  # (s1_global_idx, s23_idx)
-        
+        batch_candidates = {}
         for local_idx, s1_rec in enumerate(batch_s1_records):
             cands = {}
             for c_idx, s in res_name[local_idx]:
@@ -197,11 +195,24 @@ def predict_country(country, s1_country_df, s23_country_df, model, feature_names
                 for c_idx in models['pc_index'][pc][:40]:
                     cands[c_idx] = max(cands.get(c_idx, 0.0), 0.35)
             
+            if cands:
+                batch_candidates[local_idx] = sorted(cands.items(), key=lambda x: -x[1])[:top_k_final]
+            else:
+                batch_candidates[local_idx] = []
+
+        # Direct pre-allocated numpy matrix for batch (avoids allocating hundreds of thousands of dicts)
+        n_batch_pairs = sum(len(c) for c in batch_candidates.values())
+        feat_map = {f: i for i, f in enumerate(feature_names)}
+        X_batch = np.zeros((n_batch_pairs, len(feature_names)), dtype=np.float32) if n_batch_pairs > 0 else None
+        pair_meta = [None] * n_batch_pairs
+        pair_idx = 0
+        
+        for local_idx, s1_rec in enumerate(batch_s1_records):
+            sorted_c = batch_candidates[local_idx]
             global_s1_idx = b_start + local_idx
             s1_id = s1_ids[global_s1_idx]
             
-            if cands:
-                sorted_c = sorted(cands.items(), key=lambda x: -x[1])[:top_k_final]
+            if sorted_c:
                 cand_eids = [s23_ids[c_idx] for c_idx, _ in sorted_c]
                 candidate_dict[s1_id] = ",".join(cand_eids)
                 
@@ -219,26 +230,27 @@ def predict_country(country, s1_country_df, s23_country_df, model, feature_names
                         top1_score=top1_s,
                         top2_score=top2_s
                     )
-                    batch_pairs.append(feats)
-                    pair_meta.append((global_s1_idx, c_idx))
+                    for fname, fval in feats.items():
+                        if fname in feat_map:
+                            X_batch[pair_idx, feat_map[fname]] = fval
+                    pair_meta[pair_idx] = (global_s1_idx, c_idx)
+                    pair_idx += 1
             else:
                 candidate_dict[s1_id] = ""
         
-        # Vectorized batch prediction
-        if batch_pairs:
-            X_batch = np.array([[d.get(f, 0.0) for f in feature_names] for d in batch_pairs], dtype=np.float32)
+        # Batch prediction
+        if X_batch is not None and n_batch_pairs > 0:
             preds = model.predict(X_batch)
-            
-            # Keep >= 0.60 for competition
-            for p_idx, score in enumerate(preds):
-                if score >= 0.60:
+            for p_idx in range(n_batch_pairs):
+                score = preds[p_idx]
+                if score >= 0.65:
                     g_s1_idx, c_idx = pair_meta[p_idx]
                     high_scoring_pairs.append((s1_ids[g_s1_idx], s23_ids[c_idx], float(score)))
-                    
-            del X_batch, preds, batch_pairs, pair_meta
+            del X_batch, preds, pair_meta
             
-        del q_name, q_addr, res_name, res_addr
-        logger.info(f"     Batch {b_start:,}-{b_end:,} ({100*b_end/n_s1:.1f}%) in {time.time()-b_t0:.1f}s | High-score pairs accumulated: {len(high_scoring_pairs):,}")
+        del q_name, q_addr, res_name, res_addr, batch_candidates
+        logger.info(f"     Batch {b_start:,}-{b_end:,} ({100*b_end/n_s1:.1f}%) in {time.time()-b_t0:.1f}s | Pairs: {n_batch_pairs:,} | High-score pairs accumulated: {len(high_scoring_pairs):,}")
+        sys.stdout.flush()
     
     # 4. One-to-one competition & decision layer
     logger.info(f"  Running one-to-one competition on {len(high_scoring_pairs):,} pairs (margin={margin})...")
