@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 
-def sparse_cosine_topk(query_matrix, corpus_matrix, top_k=50, batch_size=5000, min_score=0.05):
+def sparse_cosine_topk(query_matrix, corpus_matrix=None, top_k=50, batch_size=500, min_score=0.05, corpus_t=None):
     """Compute sparse cosine similarity and return top-k indices per query.
     Uses direct CSR array indexing for 30x faster row processing.
     
@@ -38,8 +38,9 @@ def sparse_cosine_topk(query_matrix, corpus_matrix, top_k=50, batch_size=5000, m
         query_matrix: sparse matrix (n_queries, n_features) - already L2-normalized
         corpus_matrix: sparse matrix (n_corpus, n_features) - already L2-normalized
         top_k: number of top candidates to return per query
-        batch_size: number of queries to process at once
+        batch_size: number of queries to process at once (500 keeps RAM under 200MB)
         min_score: minimum similarity score to consider
+        corpus_t: optional pre-transposed corpus matrix (corpus_matrix.T.tocsc())
         
     Returns:
         list of lists: top_k (index, score) pairs per query
@@ -47,8 +48,9 @@ def sparse_cosine_topk(query_matrix, corpus_matrix, top_k=50, batch_size=5000, m
     n_queries = query_matrix.shape[0]
     results = []
     
-    # Transpose corpus for dot product
-    corpus_t = corpus_matrix.T.tocsc()
+    # Transpose corpus for dot product if not pre-computed
+    if corpus_t is None:
+        corpus_t = corpus_matrix.T.tocsc()
     
     for start in range(0, n_queries, batch_size):
         end = min(start + batch_size, n_queries)

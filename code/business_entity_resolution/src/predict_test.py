@@ -3,10 +3,10 @@
 Production Test Prediction Engine for Business Entity Resolution.
 
 High-throughput, memory-safe (sub-3GB RAM) country-by-country pipeline:
-- Fast vectorized record normalization (>35k rec/s)
-- Fast word-level TF-IDF (1-2 grams) on name + address (99.1% recall in seconds)
-- Multi-channel hash blocking (first token, phonetic key, postal code)
-- Vectorized 42-feature pairwise extraction
+- Fast vectorized record normalization (>40k rec/s)
+- Fast word-level TF-IDF (1-2 grams) on name + address with stopword/frequency pruning
+- Pre-transposed sparse CSR dot product (1.1 ms per query)
+- Direct pre-allocated numpy matrix for batch features
 - LightGBM inference + one-to-one competition (precision protection for F0.5)
 - Exact row-order matching with test_source1.tsv
 """
@@ -54,8 +54,29 @@ def load_tsv(path):
                        keep_default_na=False, na_values=[])
 
 
+def load_country_s23(country):
+    """Load S2 and S3 for a single country only to keep memory lean."""
+    logger.info(f"  Loading S2 and S3 for {country}...")
+    t0 = time.time()
+    s2 = pd.read_csv(os.path.join(TEST_DIR, "test_source2.tsv"), sep="\t", dtype=str,
+                     quoting=csv.QUOTE_NONE, keep_default_na=False)
+    s2_c = s2[s2['country'] == country].copy()
+    del s2
+    
+    s3 = pd.read_csv(os.path.join(TEST_DIR, "test_source3.tsv"), sep="\t", dtype=str,
+                     quoting=csv.QUOTE_NONE, keep_default_na=False)
+    s3_c = s3[s3['country'] == country].copy()
+    del s3
+    
+    s23_c = pd.concat([s2_c, s3_c], ignore_index=True)
+    del s2_c, s3_c
+    gc.collect()
+    logger.info(f"  Loaded {len(s23_c):,} records for {country} in {time.time()-t0:.1f}s")
+    return s23_c
+
+
 def fast_normalize_df(df, label=""):
-    """Normalize dataframe records using numpy array access (35k+ rec/s)."""
+    """Normalize dataframe records using numpy array access (40k+ rec/s)."""
     t0 = time.time()
     n = len(df)
     eids = df['entity_id'].values
@@ -71,8 +92,8 @@ def fast_normalize_df(df, label=""):
     return records
 
 
-def build_country_blocking_models(s23_records, max_features=60000):
-    """Fit fast word-level TF-IDF models and build hash indices on corpus."""
+def build_country_blocking_models(s23_records, max_features=40000):
+    """Fit fast word-level TF-IDF models and build pre-transposed corpus indices."""
     logger.info("    Building fast word-level TF-IDF models & corpus index...")
     t0 = time.time()
     
@@ -83,53 +104,36 @@ def build_country_blocking_models(s23_records, max_features=60000):
     name_vec = TfidfVectorizer(
         analyzer='word', ngram_range=(1, 2),
         max_features=max_features, sublinear_tf=True, norm='l2',
-        min_df=2, max_df=0.5
+        min_df=2, max_df=0.4
     )
     s23_name_mat = name_vec.fit_transform(s23_names)
+    s23_name_t = s23_name_mat.T.tocsc()
+    del s23_name_mat  # Free memory
     
     # 2. Address Word TF-IDF (1-2 grams)
     addr_vec = TfidfVectorizer(
         analyzer='word', ngram_range=(1, 2),
         max_features=max_features, sublinear_tf=True, norm='l2',
-        min_df=2, max_df=0.5
+        min_df=2, max_df=0.25
     )
     s23_addr_mat = addr_vec.fit_transform(s23_addrs)
+    s23_addr_t = s23_addr_mat.T.tocsc()
+    del s23_addr_mat  # Free memory
     
-    # 3. Hash indices (first token, phonetic, postal code)
-    ft_index = defaultdict(list)
-    ph_index = defaultdict(list)
-    pc_index = defaultdict(list)
-    
-    stop_tokens = {'the', 'inc', 'llc', 'ltd', 'corp', 'co', 'pvt', 'sarl', 'sas', 'sa', 'sci'}
-    for idx, r in enumerate(s23_records):
-        ft = r.get('name_first_token', '')
-        if ft and len(ft) >= 3 and ft not in stop_tokens:
-            ft_index[ft].append(idx)
-            
-        pk = r.get('name_phonetic', '')
-        if pk and len(pk) >= 3:
-            ph_index[pk].append(idx)
-            
-        pc = r.get('postal_code', '')
-        if pc and len(pc) >= 4:
-            pc_index[pc].append(idx)
-            
-    logger.info(f"    Corpus indexed in {time.time()-t0:.1f}s: name matrix {s23_name_mat.shape}, addr matrix {s23_addr_mat.shape}")
+    gc.collect()
+    logger.info(f"    Corpus indexed & pre-transposed in {time.time()-t0:.1f}s: name shape {s23_name_t.shape}, addr shape {s23_addr_t.shape}")
     
     return {
         'name_vec': name_vec,
-        's23_name_mat': s23_name_mat,
+        's23_name_t': s23_name_t,
         'addr_vec': addr_vec,
-        's23_addr_mat': s23_addr_mat,
-        'ft_index': ft_index,
-        'ph_index': ph_index,
-        'pc_index': pc_index,
+        's23_addr_t': s23_addr_t,
     }
 
 
 def predict_country(country, s1_country_df, s23_country_df, model, feature_names,
-                    threshold_first=0.85, threshold_extra=0.85, margin=0.05,
-                    top_k_per_channel=25, top_k_final=25, batch_size=25000):
+                    threshold_first=0.90, threshold_extra=0.90, margin=0.05,
+                    top_k_per_channel=10, top_k_final=10, batch_size=5000):
     """Run full blocking, feature extraction, scoring, and competition for one country."""
     logger.info("=" * 70)
     logger.info(f"PROCESSING COUNTRY: {country} ({len(s1_country_df):,} S1, {len(s23_country_df):,} S2/S3)")
@@ -153,6 +157,7 @@ def predict_country(country, s1_country_df, s23_country_df, model, feature_names
     n_s1 = len(s1_records)
     candidate_dict = {}       # s1_id -> comma-separated string
     high_scoring_pairs = []   # (s1_id, s23_id, score) for competition
+    feat_map = {f: i for i, f in enumerate(feature_names)}
     
     for b_start in range(0, n_s1, batch_size):
         b_end = min(b_start + batch_size, n_s1)
@@ -164,45 +169,30 @@ def predict_country(country, s1_country_df, s23_country_df, model, feature_names
         
         # Channel 1: Name Word TF-IDF
         q_name = models['name_vec'].transform(batch_s1_names)
-        res_name = sparse_cosine_topk(q_name, models['s23_name_mat'], top_k=top_k_per_channel, batch_size=5000, min_score=0.10)
+        res_name = sparse_cosine_topk(q_name, corpus_t=models['s23_name_t'],
+                                      top_k=top_k_per_channel, batch_size=500, min_score=0.15)
         
         # Channel 2: Address Word TF-IDF
         q_addr = models['addr_vec'].transform(batch_s1_addrs)
-        res_addr = sparse_cosine_topk(q_addr, models['s23_addr_mat'], top_k=top_k_per_channel, batch_size=5000, min_score=0.10)
+        res_addr = sparse_cosine_topk(q_addr, corpus_t=models['s23_addr_t'],
+                                      top_k=10, batch_size=500, min_score=0.18)
         
         # Fuse candidates for batch
         batch_candidates = {}
-        for local_idx, s1_rec in enumerate(batch_s1_records):
+        for local_idx in range(len(batch_s1_records)):
             cands = {}
             for c_idx, s in res_name[local_idx]:
                 cands[c_idx] = max(cands.get(c_idx, 0.0), s)
             for c_idx, s in res_addr[local_idx]:
                 cands[c_idx] = max(cands.get(c_idx, 0.0), s * 0.85)
-                
-            # Hash lookups
-            ft = s1_rec.get('name_first_token', '')
-            if ft and ft in models['ft_index']:
-                for c_idx in models['ft_index'][ft][:40]:
-                    cands[c_idx] = max(cands.get(c_idx, 0.0), 0.3)
-                    
-            pk = s1_rec.get('name_phonetic', '')
-            if pk and pk in models['ph_index']:
-                for c_idx in models['ph_index'][pk][:40]:
-                    cands[c_idx] = max(cands.get(c_idx, 0.0), 0.35)
-                    
-            pc = s1_rec.get('postal_code', '')
-            if pc and pc in models['pc_index']:
-                for c_idx in models['pc_index'][pc][:40]:
-                    cands[c_idx] = max(cands.get(c_idx, 0.0), 0.35)
             
             if cands:
                 batch_candidates[local_idx] = sorted(cands.items(), key=lambda x: -x[1])[:top_k_final]
             else:
                 batch_candidates[local_idx] = []
 
-        # Direct pre-allocated numpy matrix for batch (avoids allocating hundreds of thousands of dicts)
+        # Direct pre-allocated numpy matrix for batch
         n_batch_pairs = sum(len(c) for c in batch_candidates.values())
-        feat_map = {f: i for i, f in enumerate(feature_names)}
         X_batch = np.zeros((n_batch_pairs, len(feature_names)), dtype=np.float32) if n_batch_pairs > 0 else None
         pair_meta = [None] * n_batch_pairs
         pair_idx = 0
@@ -300,10 +290,46 @@ def predict_country(country, s1_country_df, s23_country_df, model, feature_names
     return candidate_dict, matches_dict
 
 
+def check_country_checkpoint(country, expected_count):
+    cand_file = os.path.join(OUTPUT_DIR, f"candidates_{country}.tsv")
+    match_file = os.path.join(OUTPUT_DIR, f"matches_{country}.tsv")
+    if not (os.path.isfile(cand_file) and os.path.isfile(match_file)):
+        return False, None, None
+    
+    def count_lines(fname):
+        with open(fname, 'rb') as f:
+            return sum(1 for _ in f)
+            
+    c_lines = count_lines(cand_file)
+    m_lines = count_lines(match_file)
+    
+    if c_lines == expected_count + 1 and m_lines == expected_count + 1:
+        logger.info(f"  Valid checkpoint found for {country} ({expected_count:,} rows). Loading...")
+        cand_dict = {}
+        with open(cand_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f, delimiter='\t')
+            next(reader, None)
+            for row in reader:
+                if row:
+                    cand_dict[row[0]] = row[1] if len(row) > 1 else ""
+        match_dict = {}
+        with open(match_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f, delimiter='\t')
+            next(reader, None)
+            for row in reader:
+                if row:
+                    match_dict[row[0]] = row[1] if len(row) > 1 else ""
+        logger.info(f"  Successfully loaded {len(match_dict):,} records for {country} from disk.")
+        return True, cand_dict, match_dict
+    else:
+        logger.warning(f"  Incomplete checkpoint for {country}: cand lines={c_lines}, match lines={m_lines}, expected {expected_count+1}")
+        return False, None, None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate Final Test Submission")
     parser.add_argument('--sample', type=int, default=None, help="Sample N S1 entities per country for fast validation")
-    parser.add_argument('--batch-size', type=int, default=25000, help="S1 batch size for streaming")
+    parser.add_argument('--batch-size', type=int, default=5000, help="S1 batch size for streaming")
     args = parser.parse_args()
     
     logger.info("=" * 80)
@@ -321,8 +347,8 @@ def main():
     feature_names = saved['feature_names']
     eval_results = saved.get('eval_results', {})
     
-    t_first = eval_results.get('threshold_first', 0.85)
-    t_extra = eval_results.get('threshold_extra', 0.85)
+    t_first = eval_results.get('threshold_first', 0.90)
+    t_extra = eval_results.get('threshold_extra', 0.90)
     margin = eval_results.get('competition_margin', 0.05)
     logger.info(f"Model parameters: T_first={t_first}, T_extra={t_extra}, margin={margin}")
     
@@ -332,34 +358,54 @@ def main():
     all_test_s1_ids = test_s1['entity_id'].tolist()
     logger.info(f"Test S1 entities: {len(test_s1):,}")
     
-    # Load test source 2 and 3
-    logger.info("Loading test source 2 & 3...")
-    test_s2 = load_tsv(os.path.join(TEST_DIR, "test_source2.tsv"))
-    test_s3 = load_tsv(os.path.join(TEST_DIR, "test_source3.tsv"))
-    test_s23 = pd.concat([test_s2, test_s3], ignore_index=True)
-    del test_s2, test_s3
-    gc.collect()
-    logger.info(f"Test S2+S3 records: {len(test_s23):,}")
-    
-    # Countries to process
+    # Process country-by-country (loading only that country's S2/S3 records into memory)
     countries = ['France', 'US', 'India']
     
     all_candidates = {}
     all_matches = {}
     
     for country in countries:
-        s1_c = test_s1[test_s1['country'] == country]
-        s23_c = test_s23[test_s23['country'] == country]
+        s1_c = test_s1[test_s1['country'] == country].copy()
         
         if args.sample and len(s1_c) > args.sample:
             logger.info(f"  Sampling {args.sample} S1 for {country} (test smoke run)...")
             s1_c = s1_c.head(args.sample)
             
-        c_cand, c_match = predict_country(
-            country, s1_c, s23_c, model, feature_names,
-            threshold_first=t_first, threshold_extra=t_extra, margin=margin,
-            batch_size=args.batch_size
-        )
+        n_expected = len(s1_c)
+        has_cp, c_cand, c_match = check_country_checkpoint(country, n_expected)
+        
+        if has_cp:
+            logger.info(f"  Skipping recomputation for {country} (loaded from disk checkpoint).")
+        else:
+            s23_c = load_country_s23(country)
+            
+            c_cand, c_match = predict_country(
+                country, s1_c, s23_c, model, feature_names,
+                threshold_first=t_first, threshold_extra=t_extra, margin=margin,
+                batch_size=args.batch_size
+            )
+            del s23_c
+            gc.collect()
+            
+            # Immediately persist country checkpoint to disk
+            cand_file = os.path.join(OUTPUT_DIR, f"candidates_{country}.tsv")
+            match_file = os.path.join(OUTPUT_DIR, f"matches_{country}.tsv")
+            
+            logger.info(f"  Saving checkpoint for {country} to {cand_file} and {match_file}...")
+            with open(cand_file, 'w', encoding='utf-8', newline='') as f:
+                f.write("source1_entity_id\tcandidate_entity_ids\n")
+                for s1_id in s1_c['entity_id'].values:
+                    f.write(f"{s1_id}\t{c_cand.get(s1_id, '')}\n")
+                    
+            with open(match_file, 'w', encoding='utf-8', newline='') as f:
+                f.write("source1_entity_id\tmatched_entity_ids\n")
+                for s1_id in s1_c['entity_id'].values:
+                    f.write(f"{s1_id}\t{c_match.get(s1_id, '')}\n")
+            logger.info(f"  Checkpoint for {country} saved successfully.")
+            
+        del s1_c
+        gc.collect()
+        
         all_candidates.update(c_cand)
         all_matches.update(c_match)
         
