@@ -1,0 +1,62 @@
+[
+  {
+    "experiment": "Exp-F0: Baseline (42 Features)",
+    "n_features": 42,
+    "overall_f05": 0.9679388245892713,
+    "us_f05": 0.9836682684771232,
+    "india_f05": 0.9441569801378874,
+    "singleton_f05": 0.9335664335664335,
+    "non_singleton_f05": 0.970024209364945,
+    "duration_sec": 22.3791081905365
+  },
+  {
+    "experiment": "Exp-F1: + Group A (Cross-field & Locality)",
+    "n_features": 44,
+    "overall_f05": 0.9689382218520326,
+    "us_f05": 0.9829132440029599,
+    "india_f05": 0.9478089431968177,
+    "singleton_f05": 0.9195804195804196,
+    "non_singleton_f05": 0.9719327766780131,
+    "duration_sec": 24.339802026748657
+  },
+  {
+    "experiment": "Exp-F2: + Group B (Token Weighting & Common Penalty)",
+    "n_features": 44,
+    "overall_f05": 0.96839927341369,
+    "us_f05": 0.9836593598421092,
+    "india_f05": 0.9453270653723346,
+    "singleton_f05": 0.9353146853146853,
+    "non_singleton_f05": 0.9704065267434118,
+    "duration_sec": 23.692090272903442
+  },
+  {
+    "experiment": "Exp-F3: + Group C (Script Mismatch & Consonant Skeleton)",
+    "n_features": 44,
+    "overall_f05": 0.9673299255020318,
+    "us_f05": 0.9831793650974799,
+    "india_f05": 0.9433666557394136,
+    "singleton_f05": 0.9230769230769231,
+    "non_singleton_f05": 0.9700147703670243,
+    "duration_sec": 23.132339239120483
+  },
+  {
+    "experiment": "Exp-F4: + Group D (Candidate Density & Score Ratio)",
+    "n_features": 44,
+    "overall_f05": 0.9687615250254672,
+    "us_f05": 0.9835340666158445,
+    "india_f05": 0.946426451467956,
+    "singleton_f05": 0.9300699300699301,
+    "non_singleton_f05": 0.9711089573880626,
+    "duration_sec": 24.24131727218628
+  },
+  {
+    "experiment": "Exp-F5: + All Novel Groups (50 Features)",
+    "n_features": 50,
+    "overall_f05": 0.970952942437319,
+    "us_f05": 0.984633339924487,
+    "india_f05": 0.9502691161436154,
+    "singleton_f05": 0.9370629370629371,
+    "non_singleton_f05": 0.9730090607099252,
+    "duration_sec": 23.43154215812683
+  }
+]

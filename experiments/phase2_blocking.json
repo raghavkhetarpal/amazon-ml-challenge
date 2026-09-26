@@ -1,0 +1,14 @@
+{
+  "baseline_recall": 0.9891566958122412,
+  "enhanced_recall": 0.9891566958122412,
+  "recall_gain": 0.0,
+  "rescued_pairs": 0,
+  "baseline_avg_cands": 99.6,
+  "enhanced_avg_cands": 99.622,
+  "patterns": {
+    "multilingual_cross_script": 298,
+    "extreme_corruption_or_mismatch": 13,
+    "minor_typo_or_abbreviation": 37,
+    "address_match_divergent_name": 29
+  }
+}

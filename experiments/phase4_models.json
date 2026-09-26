@@ -1,0 +1,42 @@
+[
+  {
+    "model_name": "M1: LightGBM (Baseline Params)",
+    "model_key": "lightgbm_base",
+    "overall_f05": 0.9697171371452213,
+    "us_f05": 0.9833627457791075,
+    "india_f05": 0.9490859092207459,
+    "singleton_f05": 0.9230769230769231,
+    "non_singleton_f05": 0.9725468149609887,
+    "train_time_sec": 19.008196115493774
+  },
+  {
+    "model_name": "M2: LightGBM (Tuned Regularized)",
+    "model_key": "lightgbm_tuned",
+    "overall_f05": 0.9709023334070438,
+    "us_f05": 0.9836934870797762,
+    "india_f05": 0.9515629830035859,
+    "singleton_f05": 0.9318181818181818,
+    "non_singleton_f05": 0.9732735823154879,
+    "train_time_sec": 18.272067070007324
+  },
+  {
+    "model_name": "M3: XGBoost (Hist Booster)",
+    "model_key": "xgboost_hist",
+    "overall_f05": 0.9694976802539436,
+    "us_f05": 0.9827038821992844,
+    "india_f05": 0.9495308052202873,
+    "singleton_f05": 0.9265734265734266,
+    "non_singleton_f05": 0.972101909475968,
+    "train_time_sec": 8.82114315032959
+  },
+  {
+    "model_name": "M4: CatBoost (Oblivious Trees)",
+    "model_key": "catboost_base",
+    "overall_f05": 0.9683693271161766,
+    "us_f05": 0.9818748839736008,
+    "india_f05": 0.9479498479087358,
+    "singleton_f05": 0.9283216783216783,
+    "non_singleton_f05": 0.9707990317311999,
+    "train_time_sec": 23.778340101242065
+  }
+]

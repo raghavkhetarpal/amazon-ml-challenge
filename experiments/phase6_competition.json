@@ -1,0 +1,62 @@
+{
+  "audit_stats": {
+    "total_s1_entities": 2206822,
+    "total_match_links": 7638366,
+    "unique_s23_entities": 7638366,
+    "multi_claimed_s23_count": 0,
+    "multi_claims_sample": {}
+  },
+  "strategies": {
+    "No Competition (Independent)": {
+      "overall": 0.9885612333556882,
+      "singleton": 0.0,
+      "non_singleton": 0.9885612333556882,
+      "n_entities": 9428,
+      "n_singleton": 0,
+      "n_non_singleton": 9428,
+      "per_country": {
+        "US": 0.9940905659278173,
+        "India": 0.9802297450051805
+      }
+    },
+    "Strict 1-to-1 (Margin = 0.00)": {
+      "overall": 0.9896318761800414,
+      "singleton": 0.0,
+      "non_singleton": 0.9896318761800414,
+      "n_entities": 9428,
+      "n_singleton": 0,
+      "n_non_singleton": 9428,
+      "per_country": {
+        "US": 0.9947323864857265,
+        "India": 0.9819465286920537
+      }
+    },
+    "Greedy 1-to-1 (Margin = 0.05, Baseline)": {
+      "overall": 0.9900845607211602,
+      "singleton": 0.0,
+      "non_singleton": 0.9900845607211602,
+      "n_entities": 9428,
+      "n_singleton": 0,
+      "n_non_singleton": 9428,
+      "per_country": {
+        "US": 0.9953721321820727,
+        "India": 0.9821173532048091
+      }
+    },
+    "Greedy 1-to-1 (Margin = 0.10)": {
+      "overall": 0.9898755850359993,
+      "singleton": 0.0,
+      "non_singleton": 0.9898755850359993,
+      "n_entities": 9428,
+      "n_singleton": 0,
+      "n_non_singleton": 9428,
+      "per_country": {
+        "US": 0.9953636315083634,
+        "India": 0.9816063057595057
+      }
+    }
+  },
+  "false_pruned": 98,
+  "true_pruned": 38,
+  "benefit_ratio": 2.5789473684210527
+}

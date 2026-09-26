@@ -1,0 +1,14 @@
+{
+  "overall_f05": 0.989351723847908,
+  "us_f05": 0.9944797928353221,
+  "india_f05": 0.981598433911903,
+  "singleton_f05": 0.9772727272727273,
+  "non_singleton_f05": 0.9900845607211581,
+  "n_false_positives": 252,
+  "n_singleton_fps": 14,
+  "n_false_negatives": 460,
+  "n_missed_candidates": 377,
+  "n_ranking_failures": 64,
+  "n_india_failures": 408,
+  "n_competition_pruned": 45
+}

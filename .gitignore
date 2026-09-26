@@ -29,3 +29,4 @@ build/
 
 # Submission zip
 *.zip
+catboost_info/
